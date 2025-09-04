@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PDF RAG — Upload & Ask</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>PDF-RAG</h1>
+      <p class="muted">Upload PDF → FAISS index → Ask questions (Groq LLM)</p>
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>Upload PDF</h2>
+        <form id="uploadForm">
+          <label class="label">Select PDF</label>
+          <input id="pdfFile" type="file" name="file" accept="application/pdf" required />
+          <div class="row">
+            <button id="uploadBtn" type="submit">Upload & Index</button>
+            <span id="uploadStatus" class="muted small"></span>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Ask a question</h2>
+        <form id="askForm">
+          <label class="label">Your question</label>
+          <input id="query" name="query" type="text" placeholder="e.g. What is class? (from Java PDF)" required />
+          <div class="row">
+            <button id="askBtn" type="submit">Ask</button>
+            <span id="askStatus" class="muted small"></span>
+          </div>
+        </form>
+
+        <div id="answerArea" class="answer-box hidden">
+          <h3>Answer</h3>
+          <div id="answerText" class="answer-text">—</div>
+
+          <h4>Retrieved contexts</h4>
+          <ol id="contextsList" class="contexts"></ol>
+        </div>
+      </section>
+
+      <footer class="muted small">Server must be running and accessible at the same origin (no proxy). If running on another port, update fetch URLs in the JS.</footer>
+    </main>
+  </div>
+
+  <script>
+    const uploadForm = document.getElementById('uploadForm');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const uploadStatus = document.getElementById('uploadStatus');
+
+    const askForm = document.getElementById('askForm');
+    const askBtn = document.getElementById('askBtn');
+    const askStatus = document.getElementById('askStatus');
+
+    const answerArea = document.getElementById('answerArea');
+    const answerText = document.getElementById('answerText');
+    const contextsList = document.getElementById('contextsList');
+
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = document.getElementById('pdfFile').files[0];
+      if (!f) return alert('Select a PDF first.');
+
+      uploadBtn.disabled = true;
+      uploadStatus.textContent = 'Uploading...';
+
+      try {
+        const fd = new FormData();
+        fd.append('file', f);
+
+        const res = await fetch('/upload_pdf/', { method: 'POST', body: fd });
+        const data = await res.json();
+
+        uploadStatus.textContent = data.message || 'Done';
+        setTimeout(()=> uploadStatus.textContent = '', 4000);
+      } catch (err) {
+        console.error(err);
+        uploadStatus.textContent = 'Upload failed';
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    });
+
+    askForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const q = document.getElementById('query').value.trim();
+      if (!q) return alert('Type a question first.');
+
+      askBtn.disabled = true;
+      askStatus.textContent = 'Thinking...';
+      answerArea.classList.add('hidden');
+      answerText.textContent = '';
+
+      try {
+        const fd = new FormData();
+        fd.append('query', q);
+
+        const res = await fetch('/ask/', { method: 'POST', body: fd });
+        const data = await res.json();
+
+        // show answer
+        answerArea.classList.remove('hidden');
+        answerText.textContent = data.answer || '[no answer]';
+
+        // show contexts
+        contextsList.innerHTML = '';
+        if (data.contexts && data.contexts.length) {
+          data.contexts.forEach((c) => {
+            const li = document.createElement('li');
+            // safe excerpt
+            const excerpt = (c.length > 800) ? c.slice(0, 800) + '…' : c;
+            li.innerHTML = `<pre>${escapeHtml(excerpt)}</pre>`;
+            contextsList.appendChild(li);
+          });
+        } else {
+          contextsList.innerHTML = '<li class="muted">No contexts retrieved. Re-index or upload another PDF.</li>';
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Error asking the question (see console).');
+      } finally {
+        askBtn.disabled = false;
+        askStatus.textContent = '';
+      }
+    });
+
+    // tiny helper to escape HTML
+    function escapeHtml(s) {
+      return s.replace(/[&<>"]/g, function(c) {
+        return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c];
+      });
+    }
+  </script>
+</body>
+</html>
