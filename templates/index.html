@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PDF RAG — Upload & Ask</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              DEFAULT: '#6366f1', // indigo-500
+              dark: '#4338ca'
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-gray-950 text-gray-200 font-sans min-h-screen flex items-center justify-center p-6">
+  <div class="w-full max-w-4xl">
+    <!-- Header -->
+    <header class="text-center mb-10">
+      <h1 class="text-4xl font-extrabold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">PDF-RAG Assistant</h1>
+      <p class="text-gray-400 mt-2">Upload a PDF → Indexed with FAISS → Ask Groq-powered questions</p>
+    </header>
+
+    <main class="space-y-8">
+      <!-- Upload Section -->
+      <section class="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-lg hover:shadow-xl transition">
+        <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+          📂 Upload PDF
+        </h2>
+        <form id="uploadForm" class="space-y-4">
+          <input id="pdfFile" type="file" name="file" accept="application/pdf" required
+            class="block w-full text-sm text-gray-300
+                   file:mr-4 file:py-2 file:px-4
+                   file:rounded-full file:border-0
+                   file:text-sm file:font-semibold
+                   file:bg-indigo-600 file:text-white
+                   hover:file:bg-indigo-700 cursor-pointer" />
+          <div class="flex items-center gap-4">
+            <button id="uploadBtn" type="submit"
+              class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow transition">
+              Upload & Index
+            </button>
+            <span id="uploadStatus" class="text-sm text-gray-400"></span>
+          </div>
+        </form>
+      </section>
+
+      <!-- Ask Section -->
+      <section class="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-lg hover:shadow-xl transition">
+        <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+          ❓ Ask a Question
+        </h2>
+        <form id="askForm" class="space-y-4">
+          <input id="query" name="query" type="text"
+            placeholder="e.g. Explain polymorphism from Java PDF"
+            required
+            class="w-full p-3 rounded-lg border border-gray-700 bg-gray-800 text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <div class="flex items-center gap-4">
+            <button id="askBtn" type="submit"
+              class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow transition">
+              Ask
+            </button>
+            <span id="askStatus" class="text-sm text-gray-400"></span>
+          </div>
+        </form>
+
+        <div id="answerArea" class="mt-6 hidden">
+          <h3 class="text-lg font-semibold mb-2">💡 Answer</h3>
+          <div id="answerText" class="p-4 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 whitespace-pre-line"></div>
+
+          <h4 class="text-md font-semibold mt-6 mb-2">📖 Retrieved Contexts</h4>
+          <ol id="contextsList" class="space-y-3 list-decimal list-inside"></ol>
+        </div>
+      </section>
+    </main>
+
+    <footer class="text-center mt-10 text-xs text-gray-500">
+      Built with <span class="text-indigo-400">FastAPI</span>, <span class="text-purple-400">FAISS</span>, and <span class="text-pink-400">Groq LLM</span>.
+    </footer>
+  </div>
+
+  <script>
+    const uploadForm = document.getElementById('uploadForm');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const askForm = document.getElementById('askForm');
+    const askBtn = document.getElementById('askBtn');
+    const askStatus = document.getElementById('askStatus');
+    const answerArea = document.getElementById('answerArea');
+    const answerText = document.getElementById('answerText');
+    const contextsList = document.getElementById('contextsList');
+
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = document.getElementById('pdfFile').files[0];
+      if (!f) return alert('Select a PDF first.');
+      uploadBtn.disabled = true;
+      uploadStatus.textContent = 'Uploading...';
+      try {
+        const fd = new FormData();
+        fd.append('file', f);
+        const res = await fetch('/upload_pdf/', { method: 'POST', body: fd });
+        const data = await res.json();
+        uploadStatus.textContent = data.message || 'Done';
+        setTimeout(()=> uploadStatus.textContent = '', 4000);
+      } catch (err) {
+        console.error(err);
+        uploadStatus.textContent = 'Upload failed';
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    });
+
+    askForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const q = document.getElementById('query').value.trim();
+      if (!q) return alert('Type a question first.');
+      askBtn.disabled = true;
+      askStatus.textContent = 'Thinking...';
+      answerArea.classList.add('hidden');
+      try {
+        const fd = new FormData();
+        fd.append('query', q);
+        const res = await fetch('/ask/', { method: 'POST', body: fd });
+        const data = await res.json();
+        answerArea.classList.remove('hidden');
+        answerText.textContent = data.answer || '[no answer]';
+        contextsList.innerHTML = '';
+        if (data.contexts && data.contexts.length) {
+          data.contexts.forEach((c) => {
+            const li = document.createElement('li');
+            const excerpt = (c.length > 800) ? c.slice(0, 800) + '…' : c;
+            li.innerHTML = `<pre class="p-3 rounded-lg bg-gray-800 border border-gray-700 overflow-x-auto whitespace-pre-wrap">${escapeHtml(excerpt)}</pre>`;
+            contextsList.appendChild(li);
+          });
+        } else {
+          contextsList.innerHTML = '<li class="text-gray-400">No contexts retrieved.</li>';
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Error asking the question.');
+      } finally {
+        askBtn.disabled = false;
+        askStatus.textContent = '';
+      }
+    });
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    }
+  </script>
+</body>
+</html>
