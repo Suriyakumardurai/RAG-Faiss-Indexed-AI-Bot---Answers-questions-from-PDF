@@ -210,7 +210,7 @@ Answer succinctly:"""
             {"role": "user", "content": prompt}
         ],
         temperature=0.2,
-        max_completion_tokens=800
+        max_tokens=800
     )
     return resp.choices[0].message.content.strip()
 
